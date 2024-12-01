@@ -7,3 +7,99 @@ format: html
 editor_options: 
   chunk_output_type: console
 ---
+
+### Load packages
+```{r, output = FALSE}
+#| code-fold: true
+library(here)
+library(stars)
+library(terra)
+```
+
+### Import data
+```{r, output = FALSE}
+# West Coast EEZ shapefile
+wc_eez <- st_read(here("data", "wc_regions_clean.shp"))
+
+# Bathymetry raster
+bathymetry <- rast(here("data", "depth.tif"))
+
+# SST rasters
+sst_08 <- rast(here("data", "average_annual_sst_2008.tif"))
+sst_09 <- rast(here("data", "average_annual_sst_2009.tif"))
+sst_10 <- rast(here("data", "average_annual_sst_2010.tif"))
+sst_11 <- rast(here("data", "average_annual_sst_2011.tif"))
+sst_12 <- rast(here("data", "average_annual_sst_2012.tif"))
+
+# Raster stack
+sst_stack <- c(sst_08, sst_09, sst_10, sst_11, sst_12)
+```
+
+```{r, echo = FALSE}
+# Update coordinate reference systems
+if ((crs(wc_eez) == crs(bathymetry)) &
+    (crs(wc_eez) == crs(sst_stack)) &
+    (crs(bathymetry) == crs(sst_stack))) {
+  message("All coordinate reference systems match!")
+} else {
+  bathymetry <- project(bathymetry, crs(wc_eez))
+  sst_stack <- project(sst_stack, crs(wc_eez))
+  message("All coordinate reference systems are updated and match!")
+}
+```
+
+### Process data
+```{r}
+#| code-fold: true
+# Calculate the mean of the stacked raster
+mean_sst <- mean(sst_stack, na.rm = TRUE)
+
+# Convert to celsius
+mean_sst_celsius <- mean_sst - 273.15
+
+# Crop the depth raster to match SST extent
+depth_cropped <- crop(bathymetry, mean_sst_celsius)
+
+# Resample depth raster to match SST resolution
+depth_resampled <- resample(depth_cropped, mean_sst_celsius, method = "near")
+```
+
+```{r, echo = FALSE}
+if (all.equal(crs(mean_sst_celsius), crs(depth_resampled)) &&
+    all.equal(ext(mean_sst_celsius), ext(depth_resampled)) &&
+    all.equal(res(mean_sst_celsius), res(depth_resampled))) {
+  message("Resolution, extent, and coordinate reference system match!")
+} else {
+  message("Update the resolution, extent, and coordinate reference system!")
+}
+```
+
+### Find suitable locations for White Abalone
+```{r}
+#| code-fold: true
+# Define thresholds for white abalone suitability
+suitable_sst_min <- 10
+suitable_sst_max <- 20    
+suitable_depth_min <- -65 
+suitable_depth_max <- -6  
+
+# Reclassify SST: 1 for suitable, 0 for unsuitable
+sst_suitability <- classify(mean_sst_celsius, 
+                            rcl = matrix(c(-Inf, suitable_sst_min, 0, 
+                                           suitable_sst_min, suitable_sst_max, 1, 
+                                           suitable_sst_max, Inf, 0), 
+                                         ncol = 3, byrow = TRUE))
+
+# Reclassify Depth: 1 for suitable, 0 for unsuitable
+depth_suitability <- classify(depth_resampled, 
+                              rcl = matrix(c(-Inf, suitable_depth_min, 0, 
+                                             suitable_depth_min, suitable_depth_max, 1, 
+                                             suitable_depth_max, Inf, 0), 
+                                           ncol = 3, byrow = TRUE))
+```
+
+### Determine the most suitable EEZ
+```{r}
+
+```
+
