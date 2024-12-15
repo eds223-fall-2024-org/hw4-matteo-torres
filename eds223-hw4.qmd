@@ -18,10 +18,10 @@ editor_options:
 #| code-fold: true
 
 library(here)
+library(tmap)
 library(stars)
 library(terra)
 library(tidyverse)
-library(tmap)
 ```
 
 ### Import Data
@@ -137,7 +137,7 @@ identify_suitable_areas <- function(suitable_sst_min, suitable_sst_max, suitable
 ```{r, output = TRUE}
 #| code-fold: true
 
-# White Abalone conditions
+# Oyster conditions
 identify_suitable_areas(suitable_sst_min = 11, 
                         suitable_sst_max = 30, 
                         suitable_depth_min = 0, 
