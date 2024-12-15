@@ -1,23 +1,31 @@
 ---
 title: "Homework Assignment 4"
-subtitle: "Prioritizing potential aquaculture"
+subtitle: "Prioritizing Potential Aquaculture"
 author: "Matteo Torres"
 date: last-modified
-format: html
+execute:
+  output: false
+format:
+  html:
+    theme: darkly
+    toc: true
 editor_options: 
   chunk_output_type: console
 ---
 
-### Load packages
+### Load Packages
 ```{r, output = FALSE}
 #| code-fold: true
+
 library(here)
 library(stars)
 library(terra)
+library(tidyverse)
+library(tmap)
 ```
 
-### Import data
-```{r, output = FALSE}
+### Import Data
+```{r}
 # West Coast EEZ shapefile
 wc_eez <- st_read(here("data", "wc_regions_clean.shp"))
 
@@ -35,7 +43,7 @@ sst_12 <- rast(here("data", "average_annual_sst_2012.tif"))
 sst_stack <- c(sst_08, sst_09, sst_10, sst_11, sst_12)
 ```
 
-```{r, echo = FALSE}
+```{r, message = TRUE, echo = FALSE}
 # Update coordinate reference systems
 if ((crs(wc_eez) == crs(bathymetry)) &
     (crs(wc_eez) == crs(sst_stack)) &
@@ -48,9 +56,10 @@ if ((crs(wc_eez) == crs(bathymetry)) &
 }
 ```
 
-### Process data
+### Process Data
 ```{r}
 #| code-fold: true
+
 # Calculate the mean of the stacked raster
 mean_sst <- mean(sst_stack, na.rm = TRUE)
 
@@ -64,7 +73,7 @@ depth_cropped <- crop(bathymetry, mean_sst_celsius)
 depth_resampled <- resample(depth_cropped, mean_sst_celsius, method = "near")
 ```
 
-```{r, echo = FALSE}
+```{r, message = TRUE, echo = FALSE}
 if (all.equal(crs(mean_sst_celsius), crs(depth_resampled)) &&
     all.equal(ext(mean_sst_celsius), ext(depth_resampled)) &&
     all.equal(res(mean_sst_celsius), res(depth_resampled))) {
@@ -74,32 +83,83 @@ if (all.equal(crs(mean_sst_celsius), crs(depth_resampled)) &&
 }
 ```
 
-### Find suitable locations for White Abalone
-```{r}
-#| code-fold: true
-# Define thresholds for white abalone suitability
-suitable_sst_min <- 10
-suitable_sst_max <- 20    
-suitable_depth_min <- -65 
-suitable_depth_max <- -6  
-
-# Reclassify SST: 1 for suitable, 0 for unsuitable
-sst_suitability <- classify(mean_sst_celsius, 
-                            rcl = matrix(c(-Inf, suitable_sst_min, 0, 
-                                           suitable_sst_min, suitable_sst_max, 1, 
-                                           suitable_sst_max, Inf, 0), 
-                                         ncol = 3, byrow = TRUE))
-
-# Reclassify Depth: 1 for suitable, 0 for unsuitable
-depth_suitability <- classify(depth_resampled, 
-                              rcl = matrix(c(-Inf, suitable_depth_min, 0, 
-                                             suitable_depth_min, suitable_depth_max, 1, 
-                                             suitable_depth_max, Inf, 0), 
-                                           ncol = 3, byrow = TRUE))
-```
-
 ### Determine the most suitable EEZ
 ```{r}
+#| code-fold: true
 
+# Function to generalize the workflow for any species
+identify_suitable_areas <- function(suitable_sst_min, suitable_sst_max, suitable_depth_min, suitable_depth_max, species_name) {
+  
+  # Reclassify SST: 1 for suitable, 0 for unsuitable
+  sst_suitability <- classify(mean_sst_celsius, 
+                              rcl = matrix(c(-Inf, suitable_sst_min, 0, 
+                                             suitable_sst_min, suitable_sst_max, 1, 
+                                             suitable_sst_max, Inf, 0), 
+                                           ncol = 3, byrow = TRUE))
+
+  # Reclassify Depth: 1 for suitable, 0 for unsuitable
+  depth_suitability <- classify(depth_resampled, 
+                                rcl = matrix(c(-Inf, suitable_depth_min, 0, 
+                                               suitable_depth_min, suitable_depth_max, 1, 
+                                               suitable_depth_max, Inf, 0), 
+                                             ncol = 3, byrow = TRUE))
+
+  # Find suitable locations
+  suitable_area <- sst_suitability * depth_suitability
+
+  # Mask the suitable area by EEZ boundaries
+  suitable_area_eez <- mask(suitable_area, wc_eez)
+
+  # Extract the total suitable area per EEZ
+  suitable_area_per_eez <- terra::extract(suitable_area_eez, wc_eez, fun = sum, na.rm = TRUE)
+
+  # Add the result to the EEZ shapefile
+  wc_eez$suitable_area <- suitable_area_per_eez[, 2]
+
+  # Visualize the suitable area within each EEZ
+  tm_shape(wc_eez) +
+    tm_borders() +
+    tm_fill("suitable_area", 
+            palette = "Blues", 
+            title = "Suitable Area (sq km)") +
+    tm_layout(main.title = paste("Suitable Area for", species_name, "Aquaculture"),
+              main.title.size = 0.6,
+              frame = FALSE,
+              legend.position = c("right", "center"),
+              legend.title.size = 0.8,
+              legend.text.size = 0.5) +
+    tm_compass(position = c("right", "top")) +
+    tm_scale_bar(position = "left")
+}
 ```
 
+#### Oyster Aquaculture
+```{r, output = TRUE}
+#| code-fold: true
+
+# White Abalone conditions
+identify_suitable_areas(suitable_sst_min = 11, 
+                        suitable_sst_max = 30, 
+                        suitable_depth_min = 0, 
+                        suitable_depth_max = 70, 
+                        species_name = "Oyster")
+```
+
+#### White Abalone Aquaculture
+```{r, output = TRUE}
+#| code-fold: true
+
+# White Abalone conditions
+identify_suitable_areas(suitable_sst_min = 10, 
+                        suitable_sst_max = 20, 
+                        suitable_depth_min = -65, 
+                        suitable_depth_max = -6, 
+                        species_name = "White Abalone")
+```
+
+### Data Citations
+|Data|Citation|Link|
+|----|--------|----|
+|Bathymetry|General Bathymetric Chart of the Oceans. (n.d.). Gridded bathymetry data (general bathymetric chart of the oceans). GEBCO.|https://www.gebco.net/data_and_products/gridded_bathymetry_data/#area|
+|Exclusive Economic Zones|Marine regions. (n.d.).|https://www.marineregions.org/eez.php|
+|Sea Surface Temperature|Watch, N. C. R. (n.d.). NOAA Coral Reef Watch Daily 5km satellite coral bleaching heat stress SST anomaly product (version 3.1).|https://coralreefwatch.noaa.gov/product/5km/index_5km_ssta.php|
